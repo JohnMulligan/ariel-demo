@@ -1,0 +1,28 @@
+Some useful commands john will use in this session
+
+#a secure shell login
+ssh username@davinci.rice.edu
+
+#a secure file copy of the contents of the current folder to the user's home directory on davinci
+scp * username@davinci.rice.edu:./
+
+#submitting a slurm script job
+sbatch MyJob.slurm
+
+#checking on all the processes the user is currently running
+squeue -u username
+
+#looking at the contents of the logfile as they're being written, live, last 20 lines
+tail -f slurm-slurmid.out -n 20
+
+#logging directly into a running node!
+##super advanced -- stick to interactive jobs for testing your code
+ssh cn-nodeid
+(ctrl-d to exit back to scratch)
+
+#and then looking at current usage stats
+top, or, vmstat 1
+(ctrl-c to exit)
+
+#interactive job -- looks like a regular slurm script
+srun --partition=interactive --pty --export=ALL --ntasks=1 --time=00:30:00 /bin/bash
