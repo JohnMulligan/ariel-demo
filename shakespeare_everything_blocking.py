@@ -22,7 +22,7 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 size = comm.size
 status = MPI.Status()
-lines_dict = json.loads(open("lines_dict.json","r").read())
+'''lines_dict = json.loads(open("lines_dict.json","r").read())'''
 
 interrupted = False
 #code from http://www.cism.ucl.ac.be/Services/Formations/checkpointing.pdf
@@ -53,14 +53,14 @@ def main():
 		jstor_shakespeare_cursor = jstor_shakespeare_db.cursor()
 		t=time.time()
 		while True:
-			print rank, time.time()-t, time.time()
-			t=time.time()
 			comm.Recv(data,source=MPI.ANY_SOURCE,status=status)
 			source_worker = status.Get_source()
 			next_batch = numpy.array([i for i in jstor_shakespeare_cursor.execute("SELECT rowid FROM matches WHERE mpi_mapped=0 ORDER BY RANDOM();").fetchmany(batch_size)])
 			jstor_shakespeare_cursor.executemany("UPDATE matches SET mpi_mapped = 1 WHERE rowid = ?",next_batch)
 			jstor_shakespeare_db.commit()
 			comm.Ssend(next_batch,dest=source_worker)
+			print rank, time.time()-t, time.time()
+			t=time.time()
 			checkmem(rank,1)
 			if interrupted:
 				print "checkpointer exiting early"
@@ -75,9 +75,6 @@ def main():
 		t=time.time()
 		while True:
 			##Let this one run up until the last second -- no interruption stops.
-			print rank, time.time()-t,time.time()
-			t=time.time()
-			
 			comm.Probe(MPI.ANY_SOURCE,MPI.ANY_TAG,status)
 			count = status.Get_elements(MPI.DOUBLE)
 			data = numpy.empty([count/3,3],dtype=int)
@@ -85,8 +82,9 @@ def main():
 			comm.Recv(data,source_worker)
 			this_write_cursor.executemany("INSERT OR IGNORE INTO lines_and_docs_matches(source_line_id, target_line_id,doc_id) VALUES(?,?,?)", data.tolist())
 			this_write_cnx.commit()
+			print rank, time.time()-t,time.time()
+			t=time.time()
 			checkmem(rank,1)
-			del data
 			
 	
 	else:
@@ -95,14 +93,11 @@ def main():
 		comm.Ssend(numpy.arange(batch_size),dest=0)
 		comm.Recv(jstor_match_rowids,source=0)
 		jstor_shakespeare_db = sqlite3.connect('shakespeare_clean.db',check_same_thread=False)
-		ariel_check = sqlite3.connect('ariel.db',check_same_thread=False)
+		ariel_check = sqlite3.connect('ariel_clean.db',check_same_thread=False)
 		jstor_shakespeare_cursor = jstor_shakespeare_db.cursor()
 		ariel_cursor = ariel_check.cursor()
 		t=time.time()
 		while True:
-			print rank, time.time()-t,time.time()
-			t=time.time()
-			
 			home_line_to_line_matches=[]
 			foreign_line_to_line_matches=[]
 			for jstor_match_rowid in jstor_match_rowids:
@@ -111,14 +106,7 @@ def main():
 					node_data = jstor_shakespeare_cursor.execute("SELECT docid,line FROM matches WHERE rowid = ?;", [jstor_match_rowid]).fetchone()
 					node_doc=node_data[0]
 					source_line = node_data[1]
-					
-					#correct for the jstor/folger discrepancies
-					#if this is one of jstor's bad line designators, look up the correct name in my custom dictionary/map
-					try:
-						source_line = str(lines_dict[source_line][1])
-					except:
-						pass
-				
+									
 					#get the list of other lines cited in that document, which will serve as our "target" lines
 					try:
 						target_lines_jstor = list(set([str(i[0]) for i in jstor_shakespeare_cursor.execute("SELECT line FROM matches WHERE docid = ?;", [node_doc]).fetchall()]))
@@ -154,10 +142,19 @@ def main():
 					comm.Ssend(numpy.array(this_array[0]),dest=this_array[1])
 			
 			#get new batch of work if the job hasn't timed out
-
-			comm.Ssend(numpy.arange(batch_size),dest=0)
-			comm.Recv(jstor_match_rowids,source=0)
+			#get new batch of work if the job hasn't timed out
+			print rank, time.time()-t,time.time()
+			t=time.time()
 			checkmem(rank,1)
+			if interrupted:
+				print "reader (proc %d) exiting early at time %d" %(rank, time.time())
+				return True
+			else:
+				comm.Ssend(numpy.arange(batch_size),dest=0)
+				comm.Recv(jstor_match_rowids,source=0)
+		
+
+			
 		
 		
 
